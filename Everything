@@ -1,0 +1,1597 @@
+Attribute VB_Name = "E_Import_Result_Files"
+Sub Import_Result_Files()
+          'DATE ADDED 3-5-22
+'              Call OptimizeCode_Begin
+Dim FileToOpen As Variant
+Dim ClearStartRangeLastRowFung As Long, ClearStartRangeFung As Range
+Dim ResultFile As Variant, QSResultFileWB As Workbook, QSResultFileWS As Worksheet, TotalRows As Long, Counter As Long
+Dim SampleNameLastRow As Long, QSResultFileWSLastUsedColumn As Long, DlastRow As Long
+Dim SampleName As Range, SampleNameStart As Range, DEColumnRng As Range, SerialNumberInput As Range, CRTcolumnRng As Range, cqConfRng As Range
+Dim ResultFileSerialNumber As String
+Dim rng As Range, rng2 As Range, rng3 As Range
+Dim NameTargetArray As Variant, crtArray As Variant, cqConfidenceArray As Variant
+Dim AMRorPathRNG As Range, AMRorPathstr As String
+
+
+     FileToOpen = Application.GetOpenFilename(FileFilter:="Excel Files (*.XLSX), *.XLSX", Title:="Select all files needing analyzed", MultiSelect:=True)       'if file types change to csv or something else, this needs changed
+          If Not IsArray(FileToOpen) Then
+               isExit = True
+               Exit Sub
+          Else
+          
+          End If
+          
+          With OAdataWS
+                 ClearStartRangeLastRowFung = .Cells(.Rows.count, "D").End(xlUp).Row
+                 Set ClearStartRangeFung = OAdataWS.Range("D10:M" & ClearStartRangeLastRowFung)
+                 ClearStartRangeFung.Clear
+          End With
+          
+          With OAdataWS
+                    .Range("D10").Value = "Sample Name"
+                    .Range("E10").Value = "Target Name"
+                    .Range("F10").Value = "Crt"
+                    .Range("G10").Value = "Crt Avg"
+                    .Range("H10").Value = "Crt SD"
+                    .Range("I10").Value = "Cq Confidence"
+                    .Range("J10").Value = "Min Cq Value"
+                    .Range("K10").Value = "Full Quantitation"
+                    .Range("L10").Value = "Infection %"
+                    .Range("M10").Value = "Serial Number"
+               With OAdataWS.Range("D10:O10")
+                    .HorizontalAlignment = xlHAlignCenter
+                    .Font.Size = 14
+                    .Font.Bold = True
+               End With
+          End With
+     
+          AMRorPathstr = ""
+
+     'select all result files at once
+     For Each ResultFile In FileToOpen   '---------------------------------Import Result Files (Start)----------------------------
+          Set QSResultFileWB = Workbooks.Open(ResultFile)
+          Set QSResultFileWS = QSResultFileWB.Sheets("Results")
+               TotalRows = 0
+               Counter = 0
+          With QSResultFileWS
+               Set SampleName = .Range("A1:Q50").Find("Sample Name")
+                    SampleNameLastRow = .Cells(.Rows.count, SampleName.Column).End(xlUp).Row
+               Set SampleNameStart = .Range("D" & SampleName.Row).Offset(1, 0)
+                    QSResultFileWSLastUsedColumn = .Cells(20, Columns.count).End(xlToLeft).Column   '------------------------------Sort Data to get Targets Grouped Together(Start)-----------------------------
+     
+               .Sort.SortFields.Clear
+               .Sort.SortFields.Add2 Key:=Range("D21:D" & SampleNameLastRow), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:=xlSortNormal
+               .Sort.SortFields.Add2 Key:=Range("E21:E" & SampleNameLastRow), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:=xlSortNormal
+               With QSResultFileWS.Sort
+                    .SetRange QSResultFileWS.Range(QSResultFileWS.Cells(20, 1), QSResultFileWS.Cells(SampleNameLastRow, QSResultFileWSLastUsedColumn))
+                    .Header = xlYes
+                    .MatchCase = False
+                    .Orientation = xlTopToBottom
+                    .SortMethod = xlPinYin
+                    .Apply
+               End With                                                                                                 '------------------------------Sort Data to get Targets Grouped Together(End)-----------------------------
+              
+          With QSResultFileWS.Range("D" & SampleNameStart.Row, "D" & SampleNameLastRow)
+               Dim r As Range
+               Dim RemoveThese As String, firstTarget As Range
+                    
+               For Each r In .Rows
+                    RemoveThese = Right(r.Offset(0, -2).Value, 2)               'grabs the last 2 characters from the "Well Position" column - these are unique identifiers for the 2nd set of Finegoldia magna targets
+                    Set firstTarget = r.Offset(0, 1)
+                    
+                    If r.Offset(0, 1).Value = "P. magnus_APTZ9PA" And (RemoveThese = "a8" Or RemoveThese = "b6" Or RemoveThese = "b8") Then
+                         With r
+                              .Value = vbNullString
+                         End With
+                    End If
+                    If r.Value = vbNullString Then
+                         GoTo CountNextRow
+                    End If
+                    If r.Offset(0, 1).Value = vbNullString Then     'This doesn't seem right
+                         r.Value = vbNullString
+                    End If
+                    If Application.CountA(r) <> 0 Then      'if QSResultFileWS Sample Name value <> empty then
+                         Counter = Counter + 1
+                              'MODIFIED - 3/14/22
+                         If AMRorPathstr = "" Then                    'if this string is empty, then neither Path nor AMR has been assigned yet
+                              Set AMRorPathRNG = variableStor.Range("A1:D40").Find(firstTarget.Value, LookIn:=xlValues, lookAt:=xlWhole)      'find whatever the "firstTarget" is on OAdataWS
+                              If Not (AMRorPathRNG Is Nothing) Then
+                                   If AMRorPathRNG.Column = 3 Then                  'pathogen result file names column = 21
+                                        AMRorPathstr = "Path"                             'set string = Path so I know to name Xeno as Path-Xeno
+                                   ElseIf AMRorPathRNG.Column = 1 Then              'amr result file names column = 19
+                                        AMRorPathstr = "AMR"                              'set string = AMR so I know to name Xeno as AMR-Xeno
+                                   End If
+                              Else
+                                   MsgBox "Could not find target information on Variable Storage Worksheet"     'if nothing is found then the targets in Columns S:V were deleted - PROTECT
+                                   isExit = True
+                                   Exit Sub
+                              End If
+                         End If
+                    End If
+CountNextRow:            Next r
+               TotalRows = Counter
+          End With
+               ResultFileSerialNumber = QSResultFileWS.Range("B1").Value
+               Set rng = .Range("D21:E" & SampleNameLastRow)     'Sample Name and Target Name
+               Set rng2 = .Range("I21:I" & SampleNameLastRow)    'CRT
+               Set rng3 = .Range("M21:M" & SampleNameLastRow)    'Cq Confidence
+               NameTargetArray = rng.Worksheet.Evaluate("FILTER(" & rng.Address & "," & rng.Columns(1).Address & "<>"""")")
+               crtArray = rng2.Worksheet.Evaluate("FILTER(" & rng2.Address & "," & rng.Columns(1).Address & "<>"""")")
+               cqConfidenceArray = rng3.Worksheet.Evaluate("FILTER(" & rng3.Address & "," & rng.Columns(1).Address & "<>"""")")
+          End With
+
+          With OAdataWS
+               DlastRow = OAdataWS.Cells(Rows.count, "D").End(xlUp).Row
+               Set DEColumnRng = OAdataWS.Range("D" & DlastRow).Offset(1, 0)
+               Set SerialNumberInput = OAdataWS.Range("M" & DlastRow).Offset(1, 0)
+               Set CRTcolumnRng = OAdataWS.Range("F" & DlastRow).Offset(1, 0)
+               Set cqConfRng = OAdataWS.Range("I" & DlastRow).Offset(1, 0)
+               OAdataWS.Range(DEColumnRng, "E" & (DEColumnRng.Row + TotalRows) - 1).Value = NameTargetArray
+               OAdataWS.Range(CRTcolumnRng, "F" & (DEColumnRng.Row + TotalRows) - 1).Value = crtArray
+               OAdataWS.Range(cqConfRng, "I" & (DEColumnRng.Row + TotalRows) - 1).Value = cqConfidenceArray
+               OAdataWS.Range(SerialNumberInput, "M" & (DEColumnRng.Row + TotalRows) - 1).Value = ResultFileSerialNumber
+          End With
+               Erase NameTargetArray
+               Erase crtArray
+               Erase cqConfidenceArray
+               If AMRorPathstr = "Path" Then           'after first file is placed on OAdataWS, check string - will tell me if the file was a pathogen or AMR file
+                    Call Change_PathogenNames          'if pathogen, follow pathogen name change
+                    AMRorPathstr = ""                       'clear string value in case more than 1 file was selected
+               ElseIf AMRorPathstr = "AMR" Then
+                    Call Change_AMRNames               'if AMR, follow AMR name change
+                    AMRorPathstr = ""                       'clear string value in case more than 1 file was selected
+               End If
+          QSResultFileWS.Parent.Close False
+     Next ResultFile                    '---------------------------------Import Result Files (End)-------------------------------
+
+
+          'clear data on reruns to pull WS
+     With PullReruns
+          .Range("A9:C1000").Clear
+     End With
+
+          'apply cell formatting to imported data
+Dim afterImportLastRow As Long
+     With OAdataWS
+          afterImportLastRow = .Cells(.Rows.count, "D").End(xlUp).Row
+          
+          With .Range("D11:E" & afterImportLastRow, "M11:M" & afterImportLastRow)
+               .NumberFormat = "@"           'apply text formatting to ranges
+          End With
+          With .Range("F11:J" & afterImportLastRow)
+               .NumberFormat = "0.000"       'apply 3 decimal places formatting to ranges
+          End With
+          With .Range("K11:K" & afterImportLastRow)
+               .NumberFormat = "0.00E+00"
+          End With
+          With .Range("L11:L" & afterImportLastRow)
+               .NumberFormat = "0.00%"
+          End With
+          With .Range("D10:E" & afterImportLastRow, "G10:O" & afterImportLastRow)
+               .HorizontalAlignment = xlHAlignCenter
+               .Columns.AutoFit
+          End With
+     End With
+     
+'     Call OptimizeCode_End
+End Sub
+
+Attribute VB_Name = "F_Change_Target_Names"
+Sub Change_PathogenNames()
+          'DATE ADDED 3-5-22
+          
+Dim pathName As Range, pathNameChange As Variant
+Dim eLastRow As Long, ClastRow As Long
+Dim PreConvertedNames As Range
+
+     With OAdataWS
+          eLastRow = .Cells(.Rows.count, "E").End(xlUp).Row
+     End With
+     
+     With variableStor
+          ClastRow = .Cells(.Rows.count, "C").End(xlUp).Row
+          Set PreConvertedNames = .Range("C1:C" & ClastRow)
+     End With
+     
+     For Each pathName In OAdataWS.Range("E11:E" & eLastRow).Cells
+          pathNameChange = Application.match(pathName.Value, PreConvertedNames, 0)
+          If Not IsError(pathNameChange) Then
+               With pathName
+                    .Value = variableStor.Cells(pathNameChange, 4)
+               End With
+          End If
+          If pathName.Offset(0, -1).Value = PTC Then
+               With pathName.Offset(0, -1)
+                    .Value = pathPTC
+               End With
+          ElseIf pathName.Offset(0, -1).Value = PEC Then
+               With pathName.Offset(0, -1)
+                    .Value = pathPEC
+               End With
+          ElseIf pathName.Offset(0, -1).Value = NEC Then
+               With pathName.Offset(0, -1)
+                    .Value = pathNEC
+               End With
+          ElseIf pathName.Offset(0, -1).Value = NTC Then
+               With pathName.Offset(0, -1)
+                    .Value = pathNTC
+               End With
+          End If
+     Next pathName
+     
+End Sub
+Sub Change_AMRNames()
+
+Dim amrName As Range, amrNameChange As Variant
+Dim AlastRow As Long, eLastRow As Long
+Dim amrNameChangeCol As Range
+
+     With OAdataWS
+          eLastRow = .Cells(.Rows.count, "E").End(xlUp).Row
+     End With
+     
+     With variableStor
+          AlastRow = .Cells(.Rows.count, "A").End(xlUp).Row
+          Set amrNameChangeCol = .Range("A1:A" & AlastRow)
+     End With
+
+     For Each amrName In OAdataWS.Range("E11:E" & eLastRow).Cells
+          amrNameChange = Application.match(amrName.Value, amrNameChangeCol, 0)
+          If Not IsError(amrNameChange) Then
+               With amrName
+                    .Value = variableStor.Cells(amrNameChange, 2)
+               End With
+          End If
+          If amrName.Offset(0, -1).Value = PTC Then
+               With amrName.Offset(0, -1)
+                    .Value = amrPTC
+               End With
+          ElseIf amrName.Offset(0, -1).Value = PEC Then
+               With amrName.Offset(0, -1)
+                    .Value = amrPEC
+               End With
+          ElseIf amrName.Offset(0, -1).Value = NEC Then
+               With amrName.Offset(0, -1)
+                    .Value = amrNEC
+               End With
+          ElseIf amrName.Offset(0, -1).Value = NTC Then
+               With amrName.Offset(0, -1)
+                    .Value = amrNTC
+               End With
+          End If
+     Next amrName
+
+End Sub
+
+Attribute VB_Name = "G_Full_Quant_Interp"
+Public Sub Full_Quant_Interpretation()
+
+'Dim ST As Single
+'ST = timer
+
+'     Call OptimizeCode_Begin
+
+     'MIN CQ & FULL QUANTITATIVE RESULT
+Dim DlastRow As Long, i As Long
+Dim accNum As Range, firstTarget As Range, cRT As Range, minCqRng As Range, fullQuant As Range, crtReplicate As Range
+Dim CqArr As Variant, cqArrCount As Long, replicateCqConf As Range
+     Dim minCQ As Double, FullQuantResult As Double
+Dim crtCutoff As Double, cqConfCutoff As Double, ndCounter As Long
+     'TARGET CHECKS + INVALIDS
+Dim pathogenArr As Variant, pathogenMatch As Variant, amrArr As Variant, amrMatch As Variant, xenoArr As Variant, xenoMatch As Variant
+Dim invalidArr As Variant, allINVALIDresults As Range, j As Long
+     'PERCENT INFECTION
+Dim percentArr As Variant, percentCount As Long, rowArr As Variant
+Dim SumAllQuantResults As Double, dynamicQuantResults As Double, finalPercentCalc As Double, infectionPercent As Range
+
+
+     pathogenArr = Array(Aci_bau.Value, Ana_prev.Value, Bact_frag.Value, Bact_vulg.Value, Can_albi.Value, Cit_fre.Value, Clost_perf.Value, Clost_sept.Value, Coryn_str.Value, Entero_aero.Value, Entero_cloac.Value, _
+                                   E_faecalis.Value, E_faecium.Value, E_coli.Value, F_magna.Value, Kleb_oxy.Value, Kleb_pneu.Value, _
+                                   Pept_asa.Value, Pept_ana.Value, Prev_bivia.Value, Prev_loe.Value, Pro_mir.Value, Pro_vul.Value, Pseud_aer.Value, Sal_M.Value, Sal_N.Value, Serr_marc.Value, _
+                                   Staph_aur.Value, Staph_epid.Value, Staph_haem.Value, Staph_lugd.Value, Staph_sapro.Value, Strep_agalac.Value, Strep_pneu.Value, Strep_pyo.Value)
+     
+     amrArr = Array(ACC.Value, ampC.Value, BILlatCMY.Value, CTXpool.Value, dfrA5A1.Value, DHA.Value, FOX.Value, GES.Value, IMPpool.Value, KPC.Value, mcr1.Value, mecA.Value, moxCMY.Value, nfsA.Value, OXApool.Value, _
+                         OXA1.Value, PER12.Value, QnrASB.Value, SHV.Value, Sul12.Value, TEM.Value, tetBMS.Value, vanA12B.Value, VEB.Value, VIM.Value)
+     
+     xenoArr = Array(Path_Xeno.Value, AMR_Xeno.Value)
+     
+     
+     With OAdataWS
+          DlastRow = .Cells(.Rows.count, "D").End(xlUp).Row
+     End With
+
+          'CUTOFFS
+     crtCutoff = 30
+     cqConfCutoff = 0.7
+          'INFECTION %
+     percentCount = 1
+     ReDim percentArr(1 To 36) As Variant                                            'searching every 3rd cell, which means the # of possibilties = total number of targets (35) - leave extra space just in case
+     ReDim rowArr(1 To 36) As String
+          'NOT DETECTED/INVALID
+     ndCounter = 0
+     ReDim invalidArr(1 To 37)
+     
+          'setting Min Cq Value and Full Quantitative fields
+     For i = 11 To DlastRow Step 3
+     
+          Set accNum = OAdataWS.Cells(i, 4)
+          Set firstTarget = OAdataWS.Cells(i, 5)
+          Set cRT = OAdataWS.Cells(i, 6)
+          Set minCqRng = OAdataWS.Cells(i, 10)
+          Set fullQuant = OAdataWS.Cells(i, 11)
+          Set infectionPercentLoader = OAdataWS.Cells(i, 12)
+          
+          pathogenMatch = Application.match(firstTarget.Value, pathogenArr, 0)        'see if firstTarget = any pathogen target
+          amrMatch = Application.match(firstTarget.Value, amrArr, 0)                       'see if firstTarget = any AMR target
+          xenoMatch = Application.match(firstTarget.Value, xenoArr, 0)                     'see if firstTarget = either Xeno (results will be applied the same)
+          
+          If Not IsError(pathogenMatch) Then         '--------------------------------------------------------Pathogens--------------------------------------------------------------
+               cqArrCount = 1
+               ReDim CqArr(1 To 3) As Variant          'resets array every time target changes
+               
+               For Each crtReplicate In OAdataWS.Range(cRT, cRT.Offset(2, 0)).Cells
+                    If crtReplicate <= crtCutoff Then
+                         Set replicateCqConf = crtReplicate.Offset(0, 3)        'set range to grab the replicate specific Cq Confidence
+                         If replicateCqConf.Value >= cqConfCutoff Then         'only isolate single cq value if it's <= threshold and confidence >= 0.7
+                              CqArr(cqArrCount) = crtReplicate.Value
+                              cqArrCount = cqArrCount + 1
+                         End If
+                    End If
+               Next crtReplicate
+               
+               minCQ = Application.WorksheetFunction.Min(CqArr)
+               If minCQ <> 0# Then      'if at least 1/3 replicates has qualifying Cq Value & Cq Conf then take what lowest cq value from CqArr
+                         'MIN CQ VALUE
+                    With minCqRng
+                         .Value = minCQ
+                         .Interior.Color = RGB(0, 255, 0)
+                    End With
+                         'FULL QUANT RESULT
+                    FullQuantResult = FindFullQuantResult(firstTarget.Value, minCQ)       'plug Cq value into correct pathogen specific calculation
+                    With fullQuant
+                         .Value = FullQuantResult
+                    End With
+                         'PERCENT INFECTION
+                    percentArr(percentCount) = fullQuant.Value                       'Store quantitative value for particular target
+                    rowArr(percentCount) = infectionPercentLoader.Address       'Offset 1 column where quantitative results were found and store this address (this location = destination for Infection % for this target) - when the TargetName = Path-Xeno, it's the end of the patients data, sum all numerical values in array and divide individual numbers/sum and return % to OAdataWS.cells(row,12)
+                    percentCount = percentCount + 1
+               Else
+                    With minCqRng
+                         .Value = "Not Detected"                 'else if minCq = 0.000 then set minCq value = Not Detected
+                    End With
+                    ndCounter = ndCounter + 1                         'keeping track of total # not detected results
+                    invalidArr(ndCounter) = minCqRng.Address     'and their locations
+               End If
+               
+          ElseIf Not IsError(amrMatch) Then  '--------------------------------------------------------AMR--------------------------------------------------------------
+               cqArrCount = 1
+               ReDim CqArr(1 To 3) As Variant
+               
+                For Each crtReplicate In OAdataWS.Range(cRT, cRT.Offset(2, 0)).Cells
+                    If crtReplicate <= crtCutoff Then
+                         Set replicateCqConf = crtReplicate.Offset(0, 3)
+                         If replicateCqConf.Value >= cqConfCutoff Then
+                              CqArr(cqArrCount) = crtReplicate.Value
+                              cqArrCount = cqArrCount + 1
+                         End If
+                    End If
+               Next crtReplicate
+               
+               minCQ = Application.WorksheetFunction.Min(CqArr)
+               If minCQ <> 0# Then
+                    With minCqRng
+                         .Value = minCQ
+                         .Interior.Color = RGB(0, 255, 0)
+                    End With
+               Else
+                    With minCqRng
+                         .Value = "Not Detected"
+                    End With
+                    ndCounter = ndCounter + 1
+                    invalidArr(ndCounter) = minCqRng.Address
+               End If
+               
+          ElseIf Not IsError(xenoMatch) Then           '--------------------------------------------------------Xeno--------------------------------------------------------------
+               cqArrCount = 1
+               ReDim CqArr(1 To 3) As Variant
+               
+                For Each crtReplicate In OAdataWS.Range(cRT, cRT.Offset(2, 0)).Cells
+                    If crtReplicate <= crtCutoff Then
+                         Set replicateCqConf = crtReplicate.Offset(0, 3)
+                         If replicateCqConf.Value >= cqConfCutoff Then
+                              CqArr(cqArrCount) = crtReplicate.Value
+                              cqArrCount = cqArrCount + 1
+                         End If
+                    End If
+               Next crtReplicate
+               
+               minCQ = Application.WorksheetFunction.Min(CqArr)
+               If minCQ <> 0# Then
+                    With minCqRng
+                         .Value = minCQ
+                         .Interior.Color = RGB(0, 255, 0)
+                    End With
+               Else
+                    With minCqRng
+                         .Value = "Not Detected"
+                    End With
+                    ndCounter = ndCounter + 1
+                    invalidArr(ndCounter) = minCqRng.Address
+               End If
+          End If
+          
+               '----------------------Always check if the last resulted target was either AMR-Xeno or Path-Xeno - Must reset counters after every accession number changes--------------------
+               
+          If firstTarget.Value = AMR_Xeno.Value Then
+               If ndCounter = 26 Then            ' And accNum <> amrNTC)  '26 = total number of AMR targets + Xeno - if everything = Not detected (IE. ndCounter = 26) then set all MinCq fields to yellow
+                    ReDim Preserve invalidArr(1 To ndCounter)
+                    For j = LBound(invalidArr, 1) To UBound(invalidArr, 1)
+                         Set allINVALIDresults = OAdataWS.Range(invalidArr(j))
+                              With allINVALIDresults
+                                   .Interior.Color = RGB(255, 255, 0)
+                              End With
+                    Next j
+                    ReDim invalidArr(1 To 37)
+                    rerunAccNum accNum.Value, firstTarget.Value
+                    
+               End If
+               ndCounter = 0            'if the code reaches this point, that means AMR-Xeno result was just set, meaning the patient is changing on next iteration (custom sorting assures Xeno will always be the last target for every patient)
+          ElseIf firstTarget.Value = Path_Xeno.Value Then
+               If ndCounter = 36 Then             '36 = total number of Pathogen targets + Xeno - if everything = Not detected (IE. ndCounter = 36) then set all MinCq fields to yellow
+                    ReDim Preserve invalidArr(1 To ndCounter)
+                    For j = LBound(invalidArr, 1) To UBound(invalidArr, 1)
+                         Set allINVALIDresults = OAdataWS.Range(invalidArr(j))
+                              With allINVALIDresults
+                                   .Interior.Color = RGB(255, 255, 0)
+                              End With
+                    Next j
+                    ReDim invalidArr(1 To 37)
+                    rerunAccNum accNum.Value, firstTarget.Value
+                    
+               ElseIf percentCount > 1 Then
+                    ReDim Preserve percentArr(1 To percentCount - 1)            'trim down array to only include all quantitative results that were stored for every patient
+                    ReDim Preserve rowArr(1 To percentCount - 1)                'apply equal trimming to rowArr - there should always be the same number of locations stored & quantitative results stored
+                    SumAllQuantResults = Application.WorksheetFunction.Sum(percentArr)          'add all quantitative results in percentArr
+
+                    For j = LBound(percentArr, 1) To UBound(percentArr, 1)           'starting from the bottom, search through all levels of percentArr
+                         dynamicQuantResults = percentArr(j)                              'set stored quantitative value = dynamicQuantResults
+                         finalPercentCalc = dynamicQuantResults / SumAllQuantResults      'divide individual quantitative results / sum of all quantitative results (per patient)
+                         Set infectionPercent = OAdataWS.Range(rowArr(j))                 'set the final destination = to the corresponding rowArr level (this only works because both were stored at the same time)
+                              With infectionPercent
+                                   .Value = finalPercentCalc
+                              End With
+                    Next j
+               End If
+               
+               ndCounter = 0       'if the code reaches this point, that means Path-Xeno result was just set, meaning the patient is changing on next iteration (custom sorting assures Xeno will always be the last target for every patient)
+               ReDim percentArr(1 To 36) As Variant                   'resize the array back to original size
+               ReDim rowArr(1 To 36) As String                        'resize the array back to original size
+               percentCount = 1                                            'set count back to 1 to accurately count the next patient's targets
+               dynamicQuantResults = 0                                'clear variables holding current patients values so there's no confusion
+               SumAllQuantResults = 0
+               
+          End If
+     Next i
+     
+'     MsgBox "Macro took: " & timer - ST & " seconds to complete."
+'     Call OptimizeCode_End
+End Sub
+
+Attribute VB_Name = "H_Create_Table_Update_Pivot"
+Sub createTable()
+
+'     Call OptimizeCode_Begin
+
+Dim DlastRow As Long, tableRNG As Range
+
+     With OAdataWS
+          DlastRow = .Cells(.Rows.count, "D").End(xlUp).Row
+          Set tableRNG = OAdataWS.Range("D10:M" & DlastRow)
+          .ListObjects.Add(xlSrcRange, tableRNG, , xlYes).Name = "Table1"
+     End With
+
+'     With ThisWorkbook
+'          .RefreshAll
+'     End With
+
+'Call OptimizeCode_End
+
+End Sub
+
+Attribute VB_Name = "I_Prepare_Worklist_Setup"
+Sub Prepare_Worklist()
+          'DATE ADDED - 3/13/22
+          
+'     Call OptimizeCode_Begin
+
+Dim targetArr As Variant, pathName As Variant, pathHeaderDest As Range
+Dim worklistBlastRow As Long, ClearNonHeaders As Range
+Dim postClearlastRow As Long, worklistAccNum As Range
+Dim controlsArr As Variant, controlMatch As Variant
+     
+     targetArr = Array(Aci_bau.Value, Ana_prev.Value, Bact_frag.Value, Bact_vulg.Value, Can_albi.Value, Cit_fre.Value, Clost_perf.Value, Clost_sept.Value, Coryn_str.Value, Entero_aero.Value, Entero_cloac.Value, _
+                                   E_faecalis.Value, E_faecium.Value, E_coli.Value, F_magna.Value, Kleb_oxy.Value, Kleb_pneu.Value, _
+                                   Pept_asa.Value, Pept_ana.Value, Prev_bivia.Value, Prev_loe.Value, Pro_mir.Value, Pro_vul.Value, Pseud_aer.Value, Sal_M.Value, Sal_N.Value, Serr_marc.Value, _
+                                   Staph_aur.Value, Staph_epid.Value, Staph_haem.Value, Staph_lugd.Value, Staph_sapro.Value, Strep_agalac.Value, Strep_pneu.Value, Strep_pyo.Value, Path_Xeno.Value, _
+                                   ACC.Value, ampC.Value, BILlatCMY.Value, CTXpool.Value, dfrA5A1.Value, DHA.Value, FOX.Value, GES.Value, IMPpool.Value, KPC.Value, mcr1.Value, mecA.Value, moxCMY.Value, _
+                                   nfsA.Value, OXApool.Value, OXA1.Value, PER12.Value, QnrASB.Value, SHV.Value, Sul12.Value, TEM.Value, tetBMS.Value, vanA12B.Value, VEB.Value, VIM.Value, AMR_Xeno.Value)
+     
+     controlsArr = Array(pathPTC, pathPEC, pathNTC, pathNEC, amrPTC, amrPEC, amrNTC, amrNEC)
+     
+     
+          'prepare Worklist View WS for new incoming data
+     With WorklistView
+          worklistBlastRow = .Cells(.Rows.count, "B").End(xlUp).Row
+          Set ClearNonHeaders = WorklistView.Range("B4:EF" & worklistBlastRow).Offset(1, 0)                            '"WorklistView.Cells(5, 2), WorklistView.Cells(worklistBlastRow, 120))
+               With ClearNonHeaders
+                    .Clear
+               End With
+          Set pathHeaderDest = WorklistView.Range("C3")
+     End With
+     
+          'populate target headers based on constant range variables - order arrangement inside targetArr matters!
+     For Each pathName In targetArr
+          With pathHeaderDest
+               .Value = pathName
+          End With
+          Set pathHeaderDest = pathHeaderDest.Offset(0, 1)
+     Next pathName
+     
+     With WorklistView
+          postClearlastRow = .Cells(.Rows.count, "B").End(xlUp).Row
+          Set worklistAccNum = WorklistView.Range("B" & postClearlastRow).Offset(1, 0)
+     End With
+
+      'populate accession numbers from OAdataWS (Col D) to Worklist View (Col B)
+Dim tblVar As ListObject, uniqueAccNumRNG As Range
+Dim uniqueArr As Variant, uniqueVal As Variant, removeControls As New Collection, clsCounter As Long, MyObject As Variant
+
+     Set tblVar = OAdataWS.ListObjects("Table1")
+     Set uniqueAccNumRNG = tblVar.ListColumns(1).DataBodyRange
+     uniqueArr = uniqueAccNumRNG
+     uniqueArr = getUniques(uniqueArr)            'Pass all values to getUniques function to remove all duplicates - controls are still located in this array, must remove them
+     
+     For Each uniqueVal In uniqueArr              'loop through all unique values stored in uniqueArr
+          Dim Inst As New Class1                       'create a new instance for each item
+          clsCounter = clsCounter + 1                  'create counter - whatever this counter is will be used as the reference key when stored into the collection
+          controlMatch = Application.match(uniqueVal, controlsArr, 0)
+          If IsError(controlMatch) Then                'if uniqueVal <> any of the controls in controlsArr
+               Inst.InstanceName = uniqueVal           'then add this value in the object instance
+               removeControls.Add Inst, CStr(clsCounter)    'add named object to collection using the key of clsCounter
+               Set Inst = Nothing                                'clear current instance to make room for a new one
+          Else
+               clsCounter = clsCounter - 1                  'else if a control is found then subtract 1 from clsCounter to retain accurate number of added instances
+          End If
+     Next uniqueVal
+     
+     For Each MyObject In removeControls
+           With worklistAccNum
+               .Value = MyObject.InstanceName
+          End With
+          Set worklistAccNum = worklistAccNum.Offset(1, 0)
+     Next MyObject
+     
+     For clsCounter = 1 To removeControls.count
+          removeControls.Remove 1
+     Next
+     
+'     With WorklistView.Range("B:B")
+'          .HorizontalAlignment = xlHAlignCenter
+'          .VerticalAlignment = xlVAlignCenter
+'     End With
+     
+'     Call OptimizeCode_End
+End Sub
+
+Public Sub setWorklistViewValues()
+
+'     Call OptimizeCode_Begin
+
+     'Worklist View variables
+Dim wVBlastrow, wVAccSearch As Range
+Dim wVTargetName As Range, wVTargetSearch As Range, wVTargetlastCol As Long
+Dim wVAccNumMatch As Variant, headerSearchRNG As Range
+Dim wVMinCq As Range, wVQuantResult As Range, wVInfection As Range
+     'OA Data variables
+Dim i As Long, OAdataDlastRow As Long, OAAccNum As Range, OATarget As Range, OAminCq As Range, OAfullQuant As Range, OAinfection As Range
+
+     With WorklistView
+          wVBlastrow = .Cells(.Rows.count, "B").End(xlUp).Row
+          Set wVAccSearch = WorklistView.Range("B1:B" & wVBlastrow)
+          wVTargetlastCol = .Cells(3, .Columns.count).End(xlToLeft).Column
+          Set headerSearchRNG = WorklistView.Range(WorklistView.Cells(3, 1), WorklistView.Cells(3, wVTargetlastCol))
+     End With
+     
+     With OAdataWS
+          OAdataDlastRow = .Cells(.Rows.count, "D").End(xlUp).Row
+     End With
+
+     For i = 11 To OAdataDlastRow
+          Set OAAccNum = OAdataWS.Cells(i, 4)
+          Set OATarget = OAdataWS.Cells(i, 5)
+          Set OAminCq = OAdataWS.Cells(i, 10)
+          Set OAfullQuant = OAdataWS.Cells(i, 11)
+          Set OAinfection = OAdataWS.Cells(i, 12)
+          
+          If OAminCq <> vbNullString Then
+          wVAccNumMatch = Application.match(OAAccNum, wVAccSearch, 0)
+               If Not IsError(wVAccNumMatch) Then
+                    Set wVTargetSearch = headerSearchRNG.Find(OATarget.Value, LookIn:=xlValues, lookAt:=xlWhole)
+                    If Not (wVTargetSearch Is Nothing) Then
+                         If IsNumeric(OAminCq) = True Then
+                              Set wVMinCq = WorklistView.Cells(wVAccNumMatch, wVTargetSearch.Column)
+                              Set wVQuantResult = wVMinCq.Offset(0, 1)
+                              Set wVInfection = wVQuantResult.Offset(0, 1)
+                              With wVMinCq
+                                   .Value = OAminCq.Value
+                                   .NumberFormat = "0.000"
+                                   .HorizontalAlignment = xlHAlignCenter
+                                   .VerticalAlignment = xlVAlignCenter
+                              End With
+                              If (OAfullQuant <> vbNullString And OAinfection <> vbNullString) Then
+                                   With wVQuantResult
+                                        .Value = OAfullQuant.Value
+                                        .NumberFormat = "0.00E+00"
+                                        .HorizontalAlignment = xlHAlignCenter
+                                        .VerticalAlignment = xlVAlignCenter
+                                   End With
+                                   With wVInfection
+                                        .Value = OAinfection
+                                        .NumberFormat = "0.00%"
+                                        .HorizontalAlignment = xlHAlignCenter
+                                        .VerticalAlignment = xlVAlignCenter
+                                   End With
+                              Else
+                              
+                              End If
+                         
+                         ElseIf IsNumeric(OAminCq) = False Then
+                              Set wVMinCq = WorklistView.Cells(wVAccNumMatch, wVTargetSearch.Column)
+                              With wVMinCq
+                                   .Value = OAminCq.Value
+                                   .HorizontalAlignment = xlHAlignCenter
+                                   .VerticalAlignment = xlVAlignCenter
+                              End With
+                         End If
+                    Else
+                         MsgBox "Could not find target on Worklist View Worksheet."
+                    End If
+               End If
+          End If
+     Next i
+     
+     With WorklistView.Range(WorklistView.Columns(2), WorklistView.Columns(wVTargetlastCol))
+          .Columns.AutoFit
+     End With
+     
+'     Call OptimizeCode_End
+End Sub
+
+Attribute VB_Name = "J_Check_Reruns"
+Function rerunAccNum(accNum As String, targ As String)
+
+'     Call OptimizeCode_Begin
+
+Dim controlsArr As Variant, controlMatch As Variant
+          'CHECK IF ACCNUM IS ANY CONTROLS - IF IT IS THEN EXIT FUNCTION - DON'T WANT CONTROLS TO POPULATE ON RERUNS TO PULL
+     controlsArr = Array(pathPTC, pathPEC, pathNTC, pathNEC, amrPTC, amrPEC, amrNTC, amrNEC)
+     controlMatch = Application.match(accNum, controlsArr, 0)
+     
+     If Not IsError(controlMatch) Then
+          Exit Function
+     Else
+          
+     End If
+
+Dim OAplate As String, pathogenArr As Variant, amrArr As Variant
+Dim pathMatch As Variant, amrMatch As Variant
+Dim dupPT As Variant, dupSearchRng As Range, combineRNG As Range
+Dim FindFullID As Range, Rerun2PullLastRow As Long, Rerun2PullDest As Range
+Dim Counter As Long, checkTotalTests As String
+
+     pathogenArr = Array(Aci_bau.Value, Ana_prev.Value, Bact_frag.Value, Bact_vulg.Value, Can_albi.Value, Cit_fre.Value, Clost_perf.Value, Clost_sept.Value, Coryn_str.Value, Entero_aero.Value, Entero_cloac.Value, _
+                                   E_faecalis.Value, E_faecium.Value, E_coli.Value, F_magna.Value, Kleb_oxy.Value, Kleb_pneu.Value, Pept_asa.Value, Pept_ana.Value, Prev_bivia.Value, Prev_loe.Value, Pro_mir.Value, _
+                                   Pro_vul.Value, Pseud_aer.Value, Sal_M.Value, Sal_N.Value, Serr_marc.Value, Staph_aur.Value, Staph_epid.Value, Staph_haem.Value, Staph_lugd.Value, Staph_sapro.Value, Strep_agalac.Value, _
+                                   Strep_pneu.Value, Strep_pyo.Value, Path_Xeno.Value)
+                                   
+     amrArr = Array(ACC.Value, ampC.Value, BILlatCMY.Value, CTXpool.Value, dfrA5A1.Value, DHA.Value, FOX.Value, GES.Value, IMPpool.Value, KPC.Value, mcr1.Value, mecA.Value, moxCMY.Value, nfsA.Value, OXApool.Value, _
+                         OXA1.Value, PER12.Value, QnrASB.Value, SHV.Value, Sul12.Value, TEM.Value, tetBMS.Value, vanA12B.Value, VEB.Value, VIM.Value, AMR_Xeno.Value)
+                         
+     pathMatch = Application.match(targ, pathogenArr, 0)
+     amrMatch = Application.match(targ, amrArr, 0)
+     
+     If Not IsError(pathMatch) Then
+          OAplate = "Pathogen"
+     ElseIf Not IsError(amrMatch) Then
+          OAplate = "AMR"
+     End If
+     
+     Set FindFullID = importInfoWS.Range("B12:B59").Find(accNum, LookIn:=xlValues, lookAt:=xlPart)
+
+     If Not (FindFullID Is Nothing) Then
+          If FindFullID.Borders.Weight = xlThin Then
+          
+               With PullReruns
+                    Rerun2PullLastRow = .Cells(.Rows.count, "A").End(xlUp).Row
+                    Set dupSearchRng = PullReruns.Range("A1:A" & Rerun2PullLastRow)        'range to search for duplicates on reruns to pull - need to know if col C should have both Path & AMR
+                    Set Rerun2PullDest = .Range("A" & Rerun2PullLastRow).Offset(1, 0)
+               End With
+               
+               dupPT = Application.match(FindFullID.Value, dupSearchRng, 0)
+               
+               If Not IsError(dupPT) Then                                          'if duplicate is found on reruns to pull then
+                    Set combineRNG = PullReruns.Cells(dupPT, 3)            'check the value in col C for selected accession number
+                    
+                         For Counter = 1 To Len(combineRNG.Value)
+                              checkTotalTests = Mid(combineRNG.Value, Counter, 1)    'should detected if a patient has been already marked to be rerun for both Pathogens & AMR
+                              If checkTotalTests = "&" Then
+                                   MsgBox "Patient already marked to be rerun for both Pathogens & AMR."
+                                   Exit Function
+                              Else
+
+                              End If
+                         Next Counter
+
+                    If combineRNG <> OAplate Then                               'if current col C value <> OAplate
+                         With combineRNG
+                              .Value = combineRNG.Value & " & " & OAplate    'change col C value to existing value & OAplate
+                         End With
+                    Else
+                         MsgBox "Patient is already marked to be rerun.  See 'Reruns To Pull worksheet'.", vbCritical
+                         Exit Function
+                    End If
+               Else
+                    With Rerun2PullDest
+                         .Value = FindFullID.Value
+                    End With
+                    With Rerun2PullDest.Offset(0, 1)
+                         .Value = Trim(FindFullID.Offset(0, -1).Value)
+                    End With
+                    With Rerun2PullDest.Offset(0, 2)
+                         .Value = OAplate
+                         .Interior.Color = RGB(255, 255, 0)
+                    End With
+               End If
+          End If
+     Else
+          MsgBox ("Patient name: " & accNum & " was not found on 'Import Patient Information' Worksheet." & vbNewLine & vbNewLine)
+          Exit Function
+     End If
+    
+Dim postRerunlastRow As Long
+
+     With PullReruns
+          postRerunlastRow = .Cells(.Rows.count, "A").End(xlUp).Row
+          
+          With .Range("A9:A" & postRerunlastRow, "C9:C" & postRerunlastRow)
+                .ColumnWidth = 30
+                .Font.Size = 14
+                .WrapText = True
+                .HorizontalAlignment = xlCenter
+                .VerticalAlignment = xlVAlignCenter
+           End With
+           With .Range("B9:B" & postRerunlastRow)
+                .Font.Size = 14
+                .Font.Bold = True
+                .ColumnWidth = 12
+                .HorizontalAlignment = xlCenter
+                .VerticalAlignment = xlVAlignCenter
+           End With
+     End With
+          
+'     Call OptimizeCode_End
+          
+End Function
+
+Attribute VB_Name = "K_Ligo_Result_File"
+Sub Create_Ligo_Exports_File()
+     'DATE ADDED - 3/14/22
+     
+Call OptimizeCode_Begin
+
+Dim OAdataDlastRow As Long, i As Long, j As Long
+Dim oaDataaccNum As Range, oaDatatargName As Range, oaDataMinCq As Range, oaDataFullQuant As Range, oaDataInf As Range
+Dim combinedRNG As Variant, destRng As Range, ligoWSdlastRow As Long
+
+     With OAdataWS
+          OAdataDlastRow = .Cells(.Rows.count, "D").End(xlUp).Row
+     End With
+     
+     With LigoExpWS
+          .Range("A1:T6000").Clear
+          .Range("A1").Value = "Well"
+          .Range("B1").Value = "Wound"
+          .Range("D1").Value = "Sample"
+          .Range("E1").Value = "Target"
+          .Range("M1").Value = "Min Cq"
+          .Range("R1").Value = "Full Quantitative Result"
+          .Range("S1").Value = "Infection %"
+          ligoWSdlastRow = .Cells(.Rows.count, "D").End(xlUp).Row
+     End With
+     
+     Set destRng = LigoExpWS.Range("D" & ligoWSdlastRow).Offset(1, 0)
+     
+     ReDim combinedRNG(1 To 5)
+
+     For i = 11 To OAdataDlastRow Step 3
+          Set oaDataaccNum = OAdataWS.Cells(i, 4)
+          Set oaDatatargName = OAdataWS.Cells(i, 5)
+          Set oaDataMinCq = OAdataWS.Cells(i, 10)
+          Set oaDataFullQuant = OAdataWS.Cells(i, 11)
+          Set oaDataInf = OAdataWS.Cells(i, 12)
+          
+          combinedRNG = Array(oaDataaccNum.Value, oaDatatargName.Value, oaDataMinCq.Value, oaDataFullQuant.Value, oaDataInf.Value)
+          
+          For j = LBound(combinedRNG, 1) To UBound(combinedRNG, 1)
+               If Not IsEmpty(combinedRNG(j)) Then
+                    With destRng
+                         .Value = combinedRNG(j)
+                    End With
+               Else
+                    'do nothing
+               End If
+               
+               If destRng.Column = 5 Then              'target column - E
+                    Set destRng = destRng.Offset(0, 8)      'Min Cq col - M
+               ElseIf destRng.Column = 13 Then
+                    Set destRng = destRng.Offset(0, 5)
+               ElseIf destRng.Column = 19 Then
+                    Set destRng = destRng.Offset(1, -15)     'Infection % col - O
+               Else
+                    Set destRng = destRng.Offset(0, 1)
+               End If
+          Next j
+     Next i
+
+Dim postImplastRow As Long
+
+With LigoExpWS
+     postImplastRow = .Cells(.Rows.count, "D").End(xlUp).Row
+End With
+
+     With LigoExpWS
+          With .Range("M2:M" & postImplastRow)
+               .NumberFormat = "0.000"       '3 decimal places formatting to ranges
+          End With
+          With .Range("R2:R" & postImplastRow)
+               .NumberFormat = "0.00E+00"    'scientific notation formatting
+          End With
+          With .Range("S2:S" & postImplastRow)
+               .NumberFormat = "0.00%"       'percent formatting
+          End With
+          .Range("A:T").Columns.AutoFit
+     End With
+
+Call OptimizeCode_End
+
+End Sub
+
+Attribute VB_Name = "AAAAA_Functions"
+Function getUniques(a, Optional ZeroBased As Boolean = True)
+
+Dim tmp: tmp = Application.Transpose(WorksheetFunction.Unique(a))
+If ZeroBased Then ReDim Preserve tmp(0 To UBound(tmp) - 1)
+getUniques = tmp
+
+End Function
+
+Function FindFullQuantResult(target As String, minCQ As Double)
+
+     Select Case target
+          Case Aci_bau
+               FindFullQuantResult = 10 ^ ((minCQ - 40.641) / -3.594)      'A. baumannii  1
+          Case Bact_frag
+               FindFullQuantResult = 10 ^ ((minCQ - 39.328) / -3.5846)     'B. fragilis  2
+          Case Bact_vulg
+               FindFullQuantResult = 10 ^ ((minCQ - 37.215) / -3.2223)     'B. vulgatus  3
+          Case Cit_fre
+               FindFullQuantResult = 10 ^ ((minCQ - 39.583) / -3.7755)     'C. freundii  4
+          Case Clost_perf
+               FindFullQuantResult = 10 ^ ((minCQ - 40.197) / -3.6059)     'C. perfringens  5
+          Case Clost_sept
+               FindFullQuantResult = 10 ^ ((minCQ - 41.505) / -3.901)      'C. septicum  6
+          Case Coryn_str
+               FindFullQuantResult = 10 ^ ((minCQ - 40.675) / -3.6658)     'C. striatium  7
+          Case Entero_aero
+               FindFullQuantResult = 10 ^ ((minCQ - 39.887) / -3.6172)     'E. aerogenes  8
+          Case Entero_cloac
+               FindFullQuantResult = 10 ^ ((minCQ - 39.661) / -3.4956)     'E. cloacae  9
+          Case E_faecalis
+               FindFullQuantResult = 10 ^ ((minCQ - 39.305) / -3.6476)     'E. faecalis  10
+          Case E_faecium
+               FindFullQuantResult = 10 ^ ((minCQ - 40.105) / -3.6276)     'E. faecium  11
+          Case E_coli
+               FindFullQuantResult = 10 ^ ((minCQ - 39.568) / -3.5068)     'E. coli  12
+          Case F_magna
+               FindFullQuantResult = 10 ^ ((minCQ - 40.014) / -3.64)       'P. magnus  13
+          Case Kleb_pneu
+               FindFullQuantResult = 10 ^ ((minCQ - 39.278) / -3.5939)     'K. pneumoniae  14
+          Case Kleb_oxy
+               FindFullQuantResult = 10 ^ ((minCQ - 40.603) / -3.6387)     'K. oxytoca  15
+          Case Pept_ana
+               FindFullQuantResult = 10 ^ ((minCQ - 41.301) / -3.7569)     'P. anaerobius  16
+          Case Pept_asa
+               FindFullQuantResult = 10 ^ ((minCQ - 40.001) / -3.3932)     'P. asaccharolyticus  17
+          Case Ana_prev
+               FindFullQuantResult = 10 ^ ((minCQ - 41.032) / -3.6336)     'Anaerococcus prevotii  18
+          Case Prev_bivia
+               FindFullQuantResult = 10 ^ ((minCQ - 40.028) / -3.678)      'P. bivia  19
+          Case Prev_loe
+               FindFullQuantResult = 10 ^ ((minCQ - 40.952) / -3.7278)     'P. loescheii  20
+          Case Pro_mir
+               FindFullQuantResult = 10 ^ ((minCQ - 40.556) / -3.6602)     'P. mirabilis  21
+          Case Pro_vul
+               FindFullQuantResult = 10 ^ ((minCQ - 39.635) / -3.6576)     'P. vulgaris  22
+          Case Pseud_aer
+               FindFullQuantResult = 10 ^ ((minCQ - 40.236) / -3.6581)     'P. aeruginosa  23
+          Case Sal_M
+               FindFullQuantResult = 10 ^ ((minCQ - 40.958) / -3.6496)     'S. montevideo  24
+          Case Sal_N
+               FindFullQuantResult = 10 ^ ((minCQ - 40.915) / -3.70335)    'S. enterica  25
+          Case Serr_marc
+               FindFullQuantResult = 10 ^ ((minCQ - 39.433) / -3.5346)     'S. marcescens  26
+          Case Staph_aur
+               FindFullQuantResult = 10 ^ ((minCQ - 38.18) / -3.4242)      'S. aureus  27
+          Case Staph_epid
+               FindFullQuantResult = 10 ^ ((minCQ - 38.371) / -3.5261)     'S. epidermidis  28
+          Case Staph_haem
+               FindFullQuantResult = 10 ^ ((minCQ - 40.915) / -3.5905)     'S. haemolyticus  29
+          Case Staph_lugd
+               FindFullQuantResult = 10 ^ ((minCQ - 40.063) / -3.5843)     'S. lugdunensis  30
+          Case Staph_sapro
+               FindFullQuantResult = 10 ^ ((minCQ - 38.058) / -3.3907)     'S. saprophyticus  31
+          Case Strep_agalac
+               FindFullQuantResult = 10 ^ ((minCQ - 39.489) / -3.5024)     'S. agalactiae  32
+          Case Strep_pneu
+               FindFullQuantResult = 10 ^ ((minCQ - 38.637) / -3.5075)     'S. pneumoniae  33
+          Case Strep_pyo
+               FindFullQuantResult = 10 ^ ((minCQ - 40.903) / -3.5915)     'S. pyogenes  34
+          Case Can_albi
+               FindFullQuantResult = 10 ^ ((minCQ - 39.12) / -3.6163)      'C. albicans  35
+     End Select
+End Function
+Function ActualControlLB(actualControl As String) As Variant
+
+Dim filteredRng As Range, minCqControl As Range, detectedTarget As Range
+Dim conActualCount As Long, actualDetected As Variant
+
+     With OAdataWS
+          DlastRow = .Cells(.Rows.count, "D").End(xlUp).Row
+          Set filteredRng = .Range("J11:J" & DlastRow)
+     End With
+     
+     ReDim actualDetected(1 To 37) As Variant
+     conActualCount = 1
+
+     For Each minCqControl In filteredRng.SpecialCells(xlCellTypeVisible).Cells
+          If (minCqControl.Value <> vbNullString And IsNumeric(minCqControl) = True) Then
+               Set detectedTarget = minCqControl.Offset(0, -5)
+               actualDetected(conActualCount) = detectedTarget.Value
+               conActualCount = conActualCount + 1
+          End If
+     Next minCqControl
+
+     Select Case actualControl
+          
+          Case pathPTC
+               If conActualCount > 1 Then
+               ReDim Preserve actualDetected(1 To conActualCount - 1)
+                    
+                   With WoundQuickFilterByID.LB_Actual_Detected
+                         .List = actualDetected
+                         Call UserFormSortAZ(WoundQuickFilterByID.LB_Actual_Detected)          'sort listbox alphabetically
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = (conActualCount - 1)
+                    End With
+               Else
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .Clear
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = 0
+                    End With
+               End If
+               
+               
+          Case pathPEC
+                If conActualCount > 1 Then
+                    ReDim Preserve actualDetected(1 To conActualCount - 1)
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .List = actualDetected
+                         Call UserFormSortAZ(WoundQuickFilterByID.LB_Actual_Detected)
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = (conActualCount - 1)
+                    End With
+               Else
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .Clear
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = 0
+                    End With
+               End If
+
+          Case pathNEC
+               If conActualCount > 1 Then
+                    ReDim Preserve actualDetected(1 To conActualCount - 1)
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .List = actualDetected
+                         Call UserFormSortAZ(WoundQuickFilterByID.LB_Actual_Detected)
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = (conActualCount - 1)
+                    End With
+               Else
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .Clear
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = 0
+                    End With
+               End If
+               
+          Case pathNTC
+               If conActualCount >= 2 Then
+                    ReDim Preserve actualDetected(1 To conActualCount - 1)
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .List = actualDetected
+                         Call UserFormSortAZ(WoundQuickFilterByID.LB_Actual_Detected)
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = (conActualCount - 1)
+                    End With
+               Else
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .Clear
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = 0
+                    End With
+               End If
+          
+               'AMRS
+          Case amrPTC
+                If conActualCount >= 2 Then
+                    ReDim Preserve actualDetected(1 To conActualCount - 1)
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .List = actualDetected
+                         Call UserFormSortAZ(WoundQuickFilterByID.LB_Actual_Detected)
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = (conActualCount - 1)
+                    End With
+               Else
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .Clear
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = 0
+                    End With
+               End If
+               
+          Case amrPEC
+                If conActualCount > 1 Then
+                    ReDim Preserve actualDetected(1 To conActualCount - 1)
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .List = actualDetected
+                         Call UserFormSortAZ(WoundQuickFilterByID.LB_Actual_Detected)
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = (conActualCount - 1)
+                    End With
+               Else
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .Clear
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = 0
+                    End With
+               End If
+               
+          Case amrNEC
+                If conActualCount > 1 Then
+                    ReDim Preserve actualDetected(1 To conActualCount - 1)
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .List = actualDetected
+                         Call UserFormSortAZ(WoundQuickFilterByID.LB_Actual_Detected)
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = (conActualCount - 1)
+                    End With
+               Else
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .Clear
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = 0
+                    End With
+               End If
+               
+          Case amrNTC
+               If conActualCount > 1 Then
+                    ReDim Preserve actualDetected(1 To conActualCount - 1)
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .List = actualDetected
+                         Call UserFormSortAZ(WoundQuickFilterByID.LB_Actual_Detected)
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = (conActualCount - 1)
+                    End With
+               Else
+                    With WoundQuickFilterByID.LB_Actual_Detected
+                         .Clear
+                    End With
+                    With WoundQuickFilterByID.LBL_Actual_Total
+                         .Caption = 0
+                    End With
+               End If
+     End Select
+     
+          
+End Function
+Function ExpectedControlLB(expectedControl As String)
+
+Dim pathPTCarr As Variant, pathPECarr As Variant, pathNECarr As Variant
+Dim amrPTCarr As Variant, amrPECNECarr As Variant
+
+          'PATHOGENS
+     pathPTCarr = Array(Aci_bau.Value, Ana_prev.Value, Bact_frag.Value, Bact_vulg.Value, Can_albi.Value, Cit_fre.Value, Clost_perf.Value, Clost_sept.Value, Coryn_str.Value, Entero_aero.Value, Entero_cloac.Value, _
+                                   E_faecalis.Value, E_faecium.Value, E_coli.Value, F_magna.Value, Kleb_oxy.Value, Kleb_pneu.Value, Pept_asa.Value, Pept_ana.Value, Prev_bivia.Value, Prev_loe.Value, Pro_mir.Value, _
+                                   Pro_vul.Value, Pseud_aer.Value, Sal_M.Value, Sal_N.Value, Serr_marc.Value, Staph_aur.Value, Staph_epid.Value, Staph_haem.Value, Staph_lugd.Value, Staph_sapro.Value, _
+                                   Strep_agalac.Value, Strep_pneu.Value, Strep_pyo.Value, Path_Xeno.Value)
+     pathPECarr = Array(Can_albi.Value, Path_Xeno.Value)
+     pathNECarr = Array(Path_Xeno.Value)
+
+          'AMRS
+     amrPTCarr = Array(ACC.Value, ampC.Value, BILlatCMY.Value, CTXpool.Value, dfrA5A1.Value, DHA.Value, FOX.Value, GES.Value, IMPpool.Value, KPC.Value, mcr1.Value, mecA.Value, moxCMY.Value, _
+                                   nfsA.Value, OXApool.Value, OXA1.Value, PER12.Value, QnrASB.Value, SHV.Value, Sul12.Value, TEM.Value, tetBMS.Value, vanA12B.Value, VEB.Value, VIM.Value, AMR_Xeno.Value)
+     amrPECNECarr = Array(AMR_Xeno.Value)
+
+
+     Select Case expectedControl
+     
+          Case pathPTC
+                With WoundQuickFilterByID.LB_Expected_Detected
+                    .List = pathPTCarr
+                    Call UserFormSortAZ(WoundQuickFilterByID.LB_Expected_Detected)
+               End With
+               For i = 0 To WoundQuickFilterByID.LB_Expected_Detected.ListCount - 1
+                    expectedCount = expectedCount + 1
+               Next i
+               
+               If expectedCount > 0 Then
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = expectedCount
+                    End With
+               Else
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = 0
+                    End With
+               End If
+               
+          Case pathPEC
+               With WoundQuickFilterByID.LB_Expected_Detected
+                    .List = pathPECarr
+                    Call UserFormSortAZ(WoundQuickFilterByID.LB_Expected_Detected)
+               End With
+               For i = 0 To WoundQuickFilterByID.LB_Expected_Detected.ListCount - 1
+                    expectedCount = expectedCount + 1
+               Next i
+               
+               If expectedCount > 0 Then
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = expectedCount
+                    End With
+               Else
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = 0
+                    End With
+               End If
+          
+          
+          Case pathNEC
+               With WoundQuickFilterByID.LB_Expected_Detected
+                    .List = pathNECarr
+                    Call UserFormSortAZ(WoundQuickFilterByID.LB_Expected_Detected)
+               End With
+               For i = 0 To WoundQuickFilterByID.LB_Expected_Detected.ListCount - 1
+                    expectedCount = expectedCount + 1
+               Next i
+               
+               If expectedCount > 0 Then
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = expectedCount
+                    End With
+               Else
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = 0
+                    End With
+               End If
+               
+          Case pathNTC
+               With WoundQuickFilterByID.LB_Expected_Detected
+                    .Clear
+               End With
+               For i = 0 To WoundQuickFilterByID.LB_Expected_Detected.ListCount - 1
+                    expectedCount = expectedCount + 1
+               Next i
+               
+               If expectedCount > 0 Then
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = expectedCount
+                    End With
+               Else
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = 0
+                    End With
+               End If
+               
+               'AMRS
+          Case amrPTC
+               With WoundQuickFilterByID.LB_Expected_Detected
+                    .List = amrPTCarr
+                    Call UserFormSortAZ(WoundQuickFilterByID.LB_Expected_Detected)
+               End With
+               For i = 0 To WoundQuickFilterByID.LB_Expected_Detected.ListCount - 1
+                    expectedCount = expectedCount + 1
+               Next i
+               
+               If expectedCount > 0 Then
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = expectedCount
+                    End With
+               Else
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = 0
+                    End With
+               End If
+          
+          Case amrPEC
+               With WoundQuickFilterByID.LB_Expected_Detected
+                    .List = amrPECNECarr
+                    Call UserFormSortAZ(WoundQuickFilterByID.LB_Expected_Detected)
+               End With
+               For i = 0 To WoundQuickFilterByID.LB_Expected_Detected.ListCount - 1
+                    expectedCount = expectedCount + 1
+               Next i
+               
+               If expectedCount > 0 Then
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = expectedCount
+                    End With
+               Else
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = 0
+                    End With
+               End If
+          
+          Case amrNEC
+               With WoundQuickFilterByID.LB_Expected_Detected
+                    .List = amrPECNECarr
+                    Call UserFormSortAZ(WoundQuickFilterByID.LB_Expected_Detected)
+               End With
+               For i = 0 To WoundQuickFilterByID.LB_Expected_Detected.ListCount - 1
+                    expectedCount = expectedCount + 1
+               Next i
+               
+               If expectedCount > 0 Then
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = expectedCount
+                    End With
+               Else
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = 0
+                    End With
+               End If
+          
+          Case amrNTC
+               With WoundQuickFilterByID.LB_Expected_Detected
+                    .Clear
+               End With
+               For i = 0 To WoundQuickFilterByID.LB_Expected_Detected.ListCount - 1
+                    expectedCount = expectedCount + 1
+               Next i
+               
+               If expectedCount > 0 Then
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = expectedCount
+                    End With
+               Else
+                    With WoundQuickFilterByID.LBL_Expected_Total
+                         .Caption = 0
+                    End With
+               End If
+     End Select
+     
+               With WoundQuickFilterByID.LB_Expected_Detected
+                    .ForeColor = RGB(0, 150, 0)
+               End With
+End Function
+Public Sub UserFormSortAZ(myListBox As MSForms.ListBox, Optional resetMacro As String)
+
+'Create variables
+Dim j As Long
+Dim i As Long
+Dim temp As Variant
+
+''Reset the listBox into standard order
+'If resetMacro <> "" Then
+'    Run resetMacro, myListBox
+'End If
+
+'Use Bubble sort method to put listBox in A-Z order
+With myListBox
+    For j = 0 To .ListCount - 2
+        For i = 0 To .ListCount - 2
+            If LCase(.List(i)) > LCase(.List(i + 1)) Then
+                temp = .List(i)
+                .List(i) = .List(i + 1)
+                .List(i + 1) = temp
+            End If
+        Next i
+    Next j
+End With
+
+End Sub
+
+
+
+Attribute VB_Name = "C_Create_Format112_384"
+Public isExit As Boolean
+Public Property Get rrFilePath() As String
+    rrFilePath = "X:\Resulting\Open Array\Wound\" & MonthName(Month(Now)) & " " & Year(Date) & " - Wound Rerun Sheet.xlsx" 'rrFilePath = "C:\Users\jacob\OneDrive\Desktop\UTI Iterim\UTI Rerun Sheet.xlsx"
+End Property
+Public Property Get rrFileName() As String
+    rrFileName = MonthName(Month(Now)) & " " & Year(Date) & " - Wound Rerun Sheet.xlsx"
+End Property
+
+Sub Convert_To_384_AccuFill_Import()
+
+Call OptimizeCode_Begin
+
+Dim AccufillImport As Worksheet, Save384File As Variant, FileName384 As String
+Dim HelperColumnPosition As Range, accessionNumber As Range
+Dim HelperColumnDLastRow As Long, UTITargetRange As Range
+Dim OpenArray1and2Array As Variant, OpenArray1and2Match, AccufillPosition1and2Match
+Dim AccufillImportPositionLastRow As Long, AccufillPosition As Range, Patient384Location As Range
+Dim FileName384csvPath As String, FileName384csvFolderLocation As String
+Dim FirstSampleOfOpenArray As Range, fiName As Variant, PatientRange As Range
+Dim WoundRerunSheet As Worksheet, WoundRerunSheetLastRow As Long, WoundRerunSheetSearchRange As Range, WoundRerunMatch As Range, PatientID As Range, FindRerunMatch As Variant
+Dim Currentyear As String, CurrentMonthNoYear As String
+Dim RNB6 As String, SplB5 As String
+
+Set AccufillImport = ThisWorkbook.Sheets("Accufill Import 384-File")
+
+
+Currentyear = Year(Date)
+CurrentMonthNoYear = MonthName(Month(Now))
+FileName384csvPath = "X:\Resulting\Open Array\Wound\"   'D:\384File    '384 file location
+FileName384csvFolderLocation = "Resulting Macro\384 Files"
+'-----------------------------------------------------------------
+SplB5 = Format(Left(importInfoWS.Range("B5").Value, 10), "YYYYMMDD")
+RNB6 = importInfoWS.Range("B6").Value
+
+If IsEmpty(SplB5) = False Then
+    FileName384 = (Format(Now, "YYYYMMDD")) & "_Wound_" & SplB5 & "_" & RNB6
+Else
+    FileName384 = (Format(Now, "YYYYMMDD")) & "_Wound_*RackDate*_*RackNumber*"
+End If
+'-----------------------------------------------------------------
+For Each FirstSampleOfOpenArray In importInfoWS.Range("FirstSampleOfAllOpenArrays").Cells
+     If IsEmpty(FirstSampleOfOpenArray) = False Then
+          If IsEmpty(importInfoWS.Range("B12")) = False Then
+               If (IsEmpty(importInfoWS.Range("B7")) = True Or IsEmpty(importInfoWS.Range("B8")) = True) Then
+                    Application.ScreenUpdating = True
+                    With importInfoWS.Range("B7:B8")
+                         .Borders.Color = RGB(255, 0, 0)
+                         .Borders.Weight = xlThick
+                              MsgBox ("Enter missing information before continuing")
+                         .Borders.Color = RGB(0, 0, 0)
+                         .Borders.Weight = xlMedium
+                         Exit Sub
+                    End With
+               End If
+          ElseIf IsEmpty(importInfoWS.Range("B36")) = False Then
+               If (IsEmpty(importInfoWS.Range("B9")) = True Or IsEmpty(importInfoWS.Range("B10")) = True) Then
+                    Application.ScreenUpdating = True
+                    With importInfoWS.Range("B9:B10")
+                         .Borders.Color = RGB(255, 0, 0)
+                         .Borders.Weight = xlThick
+                              MsgBox ("Enter missing information before continuing")
+                         .Borders.Color = RGB(0, 0, 0)
+                         .Borders.Weight = xlMedium
+                         Exit Sub
+                    End With
+               End If
+          End If
+    ElseIf (IsEmpty(FirstSampleOfOpenArray) = True And FirstSampleOfOpenArray.Address = "$B$12") Then
+        With importInfoWS.Range("B7:B8")
+            .Value = "N/A"
+        End With
+    ElseIf (IsEmpty(FirstSampleOfOpenArray) = True And FirstSampleOfOpenArray.Address = "$B$36") Then
+        With importInfoWS.Range("B9:B10")
+            .Value = "N/A"
+        End With
+    End If
+Next FirstSampleOfOpenArray
+
+'    Set WoundRerunSheet = Workbooks.Open(rrFilePath).Sheets("Sheet1")
+'        With WoundRerunSheet
+'            WoundRerunSheetLastRow = .Cells(.Rows.count, "A").End(xlUp).Row
+'        End With
+'
+'    Set WoundRerunSheetSearchRange = WoundRerunSheet.Range("A1:A" & WoundRerunSheetLastRow).Cells
+'    Set PatientRange = importInfoWS.Range("B12:B59")
+'
+'        PatientRange.Borders.Color = RGB(0, 0, 0)
+'        PatientRange.Borders.Weight = xlThin
+'
+'        Set WoundRerunMatch = Nothing
+'    For Each PatientID In PatientRange.Cells
+'        FindRerunMatch = Application.match(PatientID, WoundRerunSheetSearchRange, 0)      'find patient id on rerun sheet
+'        If Not IsError(FindRerunMatch) Then
+'            If WoundRerunMatch Is Nothing Then
+'                Set WoundRerunMatch = PatientID   'if it's found then add it to WoundRerunMatch if nothing is in WoundRerunMatch
+'            Else
+'                Set WoundRerunMatch = Application.Union(PatientID, WoundRerunMatch)
+'            End If
+'        End If
+'    Next PatientID
+'
+'    If Not WoundRerunMatch Is Nothing Then
+'        With WoundRerunMatch.Borders
+'            .Color = RGB(230, 0, 0)       '<----DARK RED
+'            .Weight = xlThick
+'        End With
+'    End If
+'
+'WoundRerunSheet.Parent.Close False
+
+     With importInfoWS
+          HelperColumnDLastRow = .Cells(.Rows.count, "D").End(xlUp).Row
+     End With
+     With AccufillImport
+          AccufillImportPositionLastRow = .Cells(.Rows.count, "B").End(xlUp).Row
+          With .Range("C2:C" & AccufillImportPositionLastRow)
+               .Clear
+          End With
+     End With
+
+Set AccufillPosition = AccufillImport.Range("B1:B" & AccufillImportPositionLastRow).Cells
+
+OpenArray1and2Array = Array("A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "A11", "A12", _
+                            "B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10", "B11", "B12", _
+                            "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C11", "C12", _
+                            "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "D11", "D12", _
+                            "A13", "A14", "A15", "A16", "A17", "A18", "A19", "A20", "A21", "A22", "A23", "A24", _
+                            "B13", "B14", "B15", "B16", "B17", "B18", "B19", "B20", "B21", "B22", "B23", "B24", _
+                            "C13", "C14", "C15", "C16", "C17", "C18", "C19", "C20", "C21", "C22", "C23", "C24", _
+                            "D13", "D14", "D15", "D16", "D17", "D18", "D19", "D20", "D21", "D22", "D23", "D24", _
+                            "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10", "E11", "E12", _
+                            "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", _
+                            "G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9", "G10", "G11", "G12", _
+                            "H1", "H2", "H3", "H4", "H5", "H6", "H7", "H8", "H9", "H10", "H11", "H12", _
+                            "E13", "E14", "E15", "E16", "E17", "E18", "E19", "E20", "E21", "E22", "E23", "E24", _
+                            "F13", "F14", "F15", "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24", _
+                            "G13", "G14", "G15", "G16", "G17", "G18", "G19", "G20", "G21", "G22", "G23", "G24", _
+                            "H13", "H14", "H15", "H16", "H17", "H18", "H19", "H20", "H21", "H22", "H23", "H24")
+
+For Each HelperColumnPosition In importInfoWS.Range("D12:G" & HelperColumnDLastRow).Cells
+     If HelperColumnPosition.Column = 4 Then
+          Set accessionNumber = HelperColumnPosition.Offset(0, -2)
+     ElseIf HelperColumnPosition.Column = 5 Then
+          Set accessionNumber = HelperColumnPosition.Offset(0, -3)
+     ElseIf HelperColumnPosition.Column = 6 Then
+          Set accessionNumber = HelperColumnPosition.Offset(0, -4)
+     ElseIf HelperColumnPosition.Column = 7 Then
+          Set accessionNumber = HelperColumnPosition.Offset(0, -5)
+     End If
+    OpenArray1and2Match = Application.match(HelperColumnPosition.Value, OpenArray1and2Array, 0) 'searching macro helper columns for a match inside array
+    
+        If Not IsError(OpenArray1and2Match) Then
+            AccufillPosition1and2Match = Application.match(HelperColumnPosition.Value, AccufillPosition, 0)
+            If Not IsError(AccufillPosition1and2Match) Then
+            Set Patient384Location = AccufillImport.Cells(AccufillPosition1and2Match, 3)  '<---needs changed to 3 after correct positioning is confirmed
+                If Not IsEmpty(accessionNumber) Then
+                    On Error Resume Next
+                    Patient384Location.Value = Split(accessionNumber.Value, Chr(10))(1)
+                    If IsEmpty(Patient384Location.Value) Then   'Patient384Location.Value = Split(AccessionNumber.Value, Chr(10))(1)
+                        Patient384Location.Value = accessionNumber.Value
+                    End If
+                Else
+                    GoTo NextIteration
+                End If
+            End If
+        End If
+
+NextIteration: Next HelperColumnPosition
+
+     With importInfoWS.Range("B12:B59")
+          .Borders.Weight = xlThin
+     End With
+
+
+'    'save accufill 384 file
+'AccufillImport.Copy
+''ChDrive "D"
+'With ActiveWorkbook
+'    Save384File = Application.GetSaveAsFilename(InitialFileName:=FileName384csvPath & FileName384 & "_384_File" & ".csv", FileFilter:="AccuFill-384File (*.csv),*.csv", Title:="Save As")
+'    MsgBox Save384File
+'    If Save384File = False Then
+'        Exit Sub
+'    Else
+'        .SaveAs fileName:=Save384File, FileFormat:=xlCSV
+'        .Close True
+'        MsgBox ("File has been saved to " & FileName384csvPath)
+'    End If
+'End With
+'    'save macro file
+' ChDrive "X"
+'    SaveResultingMacro = "X:\Resulting\Open Array\Wound\Analyzed Wound Excel Files\" & Currentyear & "\" & CurrentMonthNoYear & "\"
+'    ChDir SaveResultingMacro
+'fiName = Application.GetSaveAsFilename(InitialFileName:=SaveResultingMacro & FileName384 & ".xlsb", FileFilter:="Excel Macro-Enabled Workbook Binary (*.xlsb), *.xlsb", Title:="Save As")
+'If fiName = False Then Exit Sub
+'ActiveWorkbook.SaveAs fileName:=fiName
+
+Call OptimizeCode_End
+
+End Sub
+
+Attribute VB_Name = "D_Full_Quant_Results"
+Sub Import_Full_Quant_Results()
+          'DATE ADDED 3-5-22
+
+Call OptimizeCode_Begin
+
+Dim ST As Single
+ST = timer
+
+     isExit = False      'everytime the Import QS Raw Data is clicked - set this to false, if there are errors in other modules, then this will be set to true
+     
+     If Dir(ResultFilePath, vbDirectory) <> "" Then
+          ChDir ResultFilePath
+     Else
+          ChDrive "C"
+     End If
+
+          Call Import_Result_Files                     'import sorted data
+               If isExit = True Then Exit Sub
+          
+          Call createTable                             'adds Table1 to OpenArray Raw Data and updates pivot table
+          
+          Call Prepare_Worklist                         'prepare the worklist / clear ranges & load accession to worklist view - post file import
+
+          Call Full_Quant_Interpretation          'Full Interpretation - Min Cq, Full Quant, Infection %
+               If isExit = True Then Exit Sub
+
+          Call setWorklistViewValues              'returns Min Cq, Full Quant Result, and Infection % values for all patients to the worklist view WS
+
+
+     With OAdataWS.OLEObjects("Control_Comparison")
+          If .Height <> 50.25 Then
+               .Height = 50.25
+          Else
+               .Height = 51
+          End If
+     End With
+
+     With OAdataWS.OLEObjects("Create_Transfer_Ligo_File")
+          If .Height <> 50.25 Then
+               .Height = 50.25
+          Else
+               .Height = 51
+          End If
+     End With
+     
+     OAdataWS.Activate
+'     WoundQuickFilterByID.UserForm_Initialize
+'     WoundQuickFilterByID.Show (0)
+     
+
+             MsgBox "Macro took: " & timer - ST & " seconds to complete."
+Call OptimizeCode_End
+     
+
+End Sub
