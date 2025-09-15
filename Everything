@@ -1,3 +1,453 @@
+VERSION 1.0 CLASS
+BEGIN
+  MultiUse = -1  'True
+END
+Attribute VB_Name = "Class1"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = False
+Attribute VB_PredeclaredId = False
+Attribute VB_Exposed = False
+Public InstanceName
+
+
+VERSION 5.00
+Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} WoundQuickFilterByID 
+   Caption         =   "Quick Filter"
+   ClientHeight    =   11295
+   ClientLeft      =   120
+   ClientTop       =   465
+   ClientWidth     =   7215
+   OleObjectBlob   =   "WoundQuickFilterByID.frx":0000
+End
+Attribute VB_Name = "WoundQuickFilterByID"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = False
+Attribute VB_PredeclaredId = True
+Attribute VB_Exposed = False
+Function dLastRow() As Long
+     With OAdataWS
+          dLastRow = .Cells(.Rows.Count, "D").End(xlUp).Row
+     End With
+End Function
+Public Sub UpdateRerunLB()
+
+Dim i As Long, rrlastRow As Long, ptID As Range, rackPos As Range, rerunFor As Range, onlyAcc As String, rerunInterp As String
+
+With PullReruns
+     rrlastRow = .Cells(.Rows.Count, "A").End(xlUp).Row
+End With
+
+LB_CurrentRR.ColumnCount = 4
+LB_CurrentRR.ColumnWidths = "40;80;80"
+
+'assing values to the columns
+     For i = 9 To rrlastRow
+          onlyAcc = ""
+          Set ptID = PullReruns.Cells(i, 1)
+          Set rackPos = ptID.Offset(0, 1)
+          Set rerunFor = ptID.Offset(0, 2)
+          If rerunFor.Interior.Color = RGB(255, 255, 0) Then
+               rerunInterp = "Invalid"
+          ElseIf rerunFor.Interior.Color = RGB(0, 255, 0) Then
+               rerunInterp = "Valid"
+          End If
+          On Error Resume Next
+          onlyAcc = Split(ptID.Value, Chr(10))(1)
+          If onlyAcc = "" Then
+               onlyAcc = ptID.Value
+          End If
+          LB_CurrentRR.AddItem
+          LB_CurrentRR.List(i - 9, 0) = rackPos.Value
+          LB_CurrentRR.List(i - 9, 1) = onlyAcc
+          LB_CurrentRR.List(i - 9, 2) = rerunFor.Value
+          LB_CurrentRR.List(i - 9, 3) = rerunInterp
+     Next i
+End Sub
+Private Sub LB_CurrentRR_Click()
+
+Call OptimizeCode_Begin
+     
+Dim tbl As ListObject, selectedRR As String, iCount As Integer
+     Set tbl = OAdataWS.ListObjects("Table1")
+
+     tbl.AutoFilter.ShowAllData
+     
+     For iCount = 0 To LB_CurrentRR.ListCount - 1           'once item is selected in listbox, loop through the entire listbox
+          If (LB_CurrentRR.Selected(iCount) = True) Then    'if selected = true then the selection is made in this row
+               selectedRR = (LB_CurrentRR.List(iCount, 1))       'return selected row + 2nd column of listbox (Zero based)
+          End If
+     Next iCount
+     
+     tbl.Range.AutoFilter 1, selectedRR
+     
+Call OptimizeCode_End
+End Sub
+
+Private Sub Reset_Filters_Click()
+     Call ClearTableFilters
+End Sub
+Public Sub UserForm_Initialize()
+
+     Call OptimizeCode_Begin
+
+Dim tbl As ListObject, tblSN As Range
+Dim serialNum As Range, SerialNumArray As Variant, SerialNumCount As Long
+
+    Me.Top = Application.Top + (Application.UsableHeight / 1) - (Me.Height / 1.35)         'loads userform to left side of screen where excel is located - MOVE LEFT - Number goes towards 0
+    Me.Left = Application.Left + (Application.UsableWidth / 1) - (Me.Width / 0.85)     'adjusting me.height & me.width manipulates height + width. - MOVE LEFT - Towards 0
+
+     With LB_serialNum
+          .Clear
+     End With
+     
+     Set tbl = OAdataWS.ListObjects("Table1")
+          tbl.AutoFilter.ShowAllData                                                                     'unfilter data in table
+     Set tblSN = tbl.ListColumns(10).DataBodyRange.SpecialCells(xlCellTypeVisible)     'entire filtered range of Column 1 of Table (Col D - Sample Name)
+          
+          SerialNumArray = tblSN                                      'set entire serial number range = array
+          SerialNumArray = getUniques(SerialNumArray)       'send getUniques function to remove duplicates - set SerialNumArray = to what gets returned
+
+          With LB_serialNum
+               .List = SerialNumArray
+          End With
+          
+          If WoundQuickFilterByID.MultiPage1.Value <> 0 Then
+               With MultiPage1
+                    .Value = 0
+               End With
+          End If
+
+     Call UpdateRerunLB
+     
+Call OptimizeCode_End
+
+End Sub
+Private Sub LB_serialNum_Click()
+     
+     Call OptimizeCode_Begin
+
+Dim tblRng As ListObject, filteredRng As Range, serialNumberRNG As Range, accNum As Range
+Dim selectedSerialNum As String
+Dim controlCount As Integer, ControlsArray As Variant, isFiltered As Boolean
+Dim controlsArr As Variant, controlMatch As Variant, filteredMatch As Variant
+
+     controlsArr = Array(pathPTC, pathPEC, pathNTC, pathNEC, amrPTC, amrPEC, amrNTC, amrNEC)
+
+     ReDim ControlsArray(1 To 10) As Variant
+     controlCount = 1
+     
+     Set tblRng = OAdataWS.ListObjects("Table1")
+     
+          isFiltered = TestFiltered
+          If isFiltered = True Then
+               Call ClearTableFilters
+          Else
+
+          End If
+          
+          If LB_serialNum.Value <> vbNullString Then
+               selectedSerialNum = LB_serialNum.Value
+               
+               With OAdataWS
+                    .ListObjects("Table1").Range.AutoFilter Field:=10, Criteria1:=selectedSerialNum
+               End With
+               
+               Set filteredRng = tblRng.ListColumns(1).DataBodyRange.SpecialCells(xlCellTypeVisible)     'entire filtered range of Column 1 of Table (Col D - Sample Name)
+               
+               For Each controlMatch In controlsArr                                            'for each control in controlsArr
+                    filteredMatch = Application.Match(controlMatch, filteredRng, 0)  'find a match in the filtered table range
+                    If Not IsError(filteredMatch) Then                                         'if a match is found then
+                         Set accNum = filteredRng.Cells(filteredMatch, 1)                 'set accNum = the match found
+                         Set serialNumberRNG = accNum.Offset(0, 9)                        'offset 9 columns within filtered table range and set serial number
+                         
+                         If serialNumberRNG.Value = selectedSerialNum Then                'if serialNumberRNG = serial number selected in LB_serialNum then
+                              ControlsArray(controlCount) = accNum.Value                  'add this accNum to array
+                              controlCount = controlCount + 1                                  'add 1 to counter
+                         Else
+                              MsgBox "CRITICAL: Issue filtering data correctly by serial number.", vbCritical      'if serialNumberRNG <> selectedSerialNum then there's a major issue with the filtering and I need contacted"
+                         End If
+                    End If
+               Next controlMatch
+          End If
+          
+          If controlCount > 1 Then
+               ReDim Preserve ControlsArray(1 To controlCount - 1)
+               With ControlsListBox
+                    .List = ControlsArray
+               End With
+          Else
+               With ControlsListBox
+                    .Clear
+               End With
+          End If
+     
+     Call OptimizeCode_End
+     
+End Sub
+Private Sub ControlsListBox_Click()
+
+     Call OptimizeCode_Begin
+     
+Dim selectedControl As String, filteredRng As Range
+
+     'expected
+Dim expectedCount As Long
+
+     If ControlsListBox.Value <> vbNullString Then
+          selectedControl = ControlsListBox.Value
+          
+          With OAdataWS
+               .ListObjects("Table1").Range.AutoFilter Field:=1, Criteria1:=selectedControl
+          End With
+          
+               'PATHOGEN START
+          If selectedControl = pathPTC Then
+               ActualControlLB (pathPTC)
+               ExpectedControlLB (pathPTC)
+          
+          ElseIf selectedControl = pathPEC Then
+               ActualControlLB (pathPEC)
+               ExpectedControlLB (pathPEC)
+               
+          ElseIf selectedControl = pathNEC Then
+               ActualControlLB (pathNEC)
+               ExpectedControlLB (pathNEC)
+               
+          ElseIf selectedControl = pathNTC Then
+               ActualControlLB (pathNTC)
+               ExpectedControlLB (pathNTC)
+          
+               'AMR START
+          ElseIf selectedControl = amrPTC Then
+               ActualControlLB (amrPTC)
+               ExpectedControlLB (amrPTC)
+               
+          ElseIf selectedControl = amrPEC Then
+               ActualControlLB (amrPEC)
+               ExpectedControlLB (amrPEC)
+               
+          ElseIf selectedControl = amrNEC Then
+               ActualControlLB (amrNEC)
+               ExpectedControlLB (amrNEC)
+               
+          ElseIf selectedControl = amrNTC Then
+               ActualControlLB (amrNTC)
+               ExpectedControlLB (amrNTC)
+          
+          End If
+     End If
+     
+     If LBL_Expected_Total = LBL_Actual_Total Then
+          With LB_Actual_Detected
+               .ForeColor = RGB(0, 150, 0)
+          End With
+     Else
+          With LB_Actual_Detected
+               .ForeColor = RGB(150, 0, 0)
+          End With
+     End If
+     Call OptimizeCode_End
+
+End Sub
+Private Sub ClearTableFilters()
+     
+     Call OptimizeCode_Begin
+     
+Dim tblVar As ListObject: Set tblVar = OAdataWS.ListObjects("Table1")
+
+   tblVar.AutoFilter.ShowAllData
+     
+     With LB_serialNum
+          .ListIndex = -1
+     End With
+     With ControlsListBox
+          .ListIndex = -1
+          .Clear
+     End With
+     With LB_Expected_Detected
+          .Clear
+     End With
+     With LB_Actual_Detected
+          .Clear
+     End With
+     With LBL_Expected_Total
+          .Caption = ""
+     End With
+     With LBL_Actual_Total
+          .Caption = ""
+     End With
+     With OAdataWS.Range("A1")
+          .Activate
+     End With
+     
+     Call OptimizeCode_End
+End Sub
+Private Sub Clear_Filter_Click()
+     Call ClearTableFilters
+End Sub
+Public Function TestFiltered() As Boolean
+
+Dim filterArea As Range
+Dim rowsCount As Long, cellsCount As Long, columnsCount As Long
+
+     Set filterArea = OAdataWS.ListObjects("Table1").Range
+
+     rowsCount = filterArea.Rows.Count
+     columnsCount = filterArea.Columns.Count
+
+     cellsCount = filterArea.SpecialCells(xlCellTypeVisible).Count
+
+     If (rowsCount * columnsCount) > cellsCount Then
+          TestFiltered = True
+     Else
+          TestFiltered = False
+     End If
+
+End Function
+Private Sub RerunPatient_Click()
+
+     Call OptimizeCode_Begin
+Dim accNum As String, Target As String
+
+If Selection.Column = 4 And Selection.Count = 1 Then
+     accNum = Selection
+     Target = Selection.Offset(0, 1)
+     
+     If Selection.Borders.Weight = xlThin Then
+          rerunAccNum accNum, Target, 18.5555          'random number for xeno result just to ensure it'll always place selected accession number on reruns to pull ws
+          Call UpdateRerunLB       'update reruns listbox if
+     ElseIf Selection.Borders.Weight = xlThick Then
+          MsgBox "Patient already located on 'Reruns To Pull' worksheet."
+          Exit Sub
+     End If
+Else
+     MsgBox "Select only the accession number on 'Open Array Raw Data'."
+     Exit Sub
+End If
+     
+     Call OptimizeCode_End
+End Sub
+
+VERSION 5.00
+Begin {C62A69F0-16DC-11CE-9E98-00AA00574A4F} Worklist_View_Form 
+   Caption         =   "UserForm1"
+   ClientHeight    =   7050
+   ClientLeft      =   120
+   ClientTop       =   465
+   ClientWidth     =   8520.001
+   OleObjectBlob   =   "Worklist_View_Form.frx":0000
+   StartUpPosition =   1  'CenterOwner
+End
+Attribute VB_Name = "Worklist_View_Form"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = False
+Attribute VB_PredeclaredId = True
+Attribute VB_Exposed = False
+Private Sub LB_AccNum_Click()
+
+Call OptimizeCode_Begin
+
+Dim wVBlastrow As Long, wVlastColumn As Long, wVAccSearchRng As Range
+Dim wVaccMatch As Variant
+Dim resultSearchRng As Range, ResultVal As Range
+Dim minCqHeader As Range, wVTargetName As Range
+Dim i As Long, targetLBitem As Range
+Dim pathListCheck As Variant, amrListCheck As Variant
+Dim DetectedPathTargets As Variant, DetectedPathCount As Long
+
+Dim pathArr As Variant, amrArr As Variant
+
+     pathArr = Array(Aci_bau.Value, Ana_prev.Value, Bact_frag.Value, Bact_vulg.Value, Can_albi.Value, Cit_fre.Value, Clost_perf.Value, Clost_sept.Value, Coryn_str.Value, Entero_aero.Value, Entero_cloac.Value, _
+                              E_faecalis.Value, E_faecium.Value, E_coli.Value, F_magna.Value, Kleb_oxy.Value, Kleb_pneu.Value, _
+                              Pept_asa.Value, Pept_ana.Value, Prev_bivia.Value, Prev_loe.Value, Pro_mir.Value, Pro_vul.Value, Pseud_aer.Value, Sal_M.Value, Sal_N.Value, Serr_marc.Value, _
+                              Staph_aur.Value, Staph_epid.Value, Staph_haem.Value, Staph_lugd.Value, Staph_sapro.Value, Strep_agalac.Value, Strep_pneu.Value, Strep_pyo.Value, Path_Xeno.Value)
+                              
+     amrArr = Array(ACC.Value, ampC.Value, BILlatCMY.Value, CTXpool.Value, dfrA5A1.Value, DHA.Value, FOX.Value, GES.Value, IMPpool.Value, KPC.Value, mcr1.Value, mecA.Value, moxCMY.Value, _
+                              nfsA.Value, OXApool.Value, OXA1.Value, PER12.Value, QnrASB.Value, SHV.Value, Sul12.Value, TEM.Value, tetBMS.Value, vanA12B.Value, VEB.Value, VIM.Value, AMR_Xeno.Value)
+
+
+     With WorklistView
+          wVBlastrow = .Cells(.Rows.Count, "B").End(xlUp).Row
+          wVlastColumn = .Cells(3, .Columns.Count).End(xlToLeft).Column
+          Set wVAccSearchRng = .Range("B1:B" & wVBlastrow)
+     End With
+
+     DetectedPathCount = 1
+     ReDim DetectedPathTargets(1 To 37) As String
+     
+     If LB_AccNum.Value <> vbNullString Then      'if an item in the accessioning listbox is selected then
+          wVaccMatch = Application.Match(LB_AccNum.Value, wVAccSearchRng, 0)         'find same accession on worklist view WS
+          If Not IsError(wVaccMatch) Then
+          Set resultSearchRng = WorklistView.Range(WorklistView.Cells(wVaccMatch, 3), WorklistView.Cells(wVaccMatch, wVlastColumn)).Offset(0, 2)   'if accesion is found, then loop through all the columns in the match row (column count coming from headers)
+               For Each ResultVal In resultSearchRng.Cells
+                    If IsNumeric(ResultVal) = True Then          'if the result is a numerical value then
+                         Set minCqHeader = WorklistView.Cells(4, ResultVal.Column)
+                         If minCqHeader.Value = "Min Cq" Then               'make sure minCq is the header - need to check because target name will be directly above Min Cq header
+                              Set wVTargetName = WorklistView.Cells(3, ResultVal.Column)       'set target name
+                              pathListCheck = Application.Match(wVTargetName, pathArr, 0)       'check if the target name is in the pathogen list on OAdataWS
+                              If Not IsError(pathListCheck) Then                                                   'if it is then add target to the array to populate to detected listbox
+                                   DetectedPathTargets(DetectedPathCount) = wVTargetName.Value
+                                   DetectedPathCount = DetectedPathCount + 1
+                              End If
+                         Else
+                              GoTo nextRV
+                         End If
+                    End If
+nextRV:   Next ResultVal
+          End If
+     End If
+     
+     If DetectedPathCount > 1 Then
+          ReDim Preserve DetectedPathTargets(1 To DetectedPathCount - 1)
+          With LB_Targets
+               .List = DetectedPathTargets
+          End With
+     Else
+          With LB_Targets
+              .Clear
+          End With
+     End If
+
+Call OptimizeCode_End
+End Sub
+Private Sub UserForm_Initialize()
+
+Call OptimizeCode_Begin
+
+     Me.Top = Application.Top + (Application.UsableHeight / 1) - (Me.Height / 1.35)         'loads userform to left side of screen where excel is located - MOVE LEFT - Number goes towards 0
+     Me.Left = Application.Left + (Application.UsableWidth / 1) - (Me.Width / 0.85)     'adjusting me.height & me.width manipulates height + width. - MOVE LEFT - Towards 0
+    
+     Dim AccNumArr As Variant, accNumCount As Long
+     Dim AccNumRange As Range
+
+     ReDim AccNumArr(1 To 300) As Variant
+
+     With WorklistView
+          lastRow = .Cells(.Rows.Count, "B").End(xlUp).Row
+          Set AccNumRange = .Range("B5:B" & lastRow)
+     End With
+     
+     If lastRow <= 4 Then
+     
+     Else
+          AccNumArr = AccNumRange.Value
+          With LB_AccNum
+               .List = AccNumArr
+          End With
+     End If
+
+     
+     
+'          With LB_Targets
+'               .List = TargetRange.Value
+'          End With
+
+Call OptimizeCode_End
+
+End Sub
+
+
+
 Attribute VB_Name = "E_Import_Result_Files"
 Sub Import_Result_Files()
           'DATE ADDED 3-5-22
